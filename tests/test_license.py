@@ -101,6 +101,46 @@ class LicenseTests(unittest.TestCase):
             self.assertEqual(removed.status, LicenseStatus.MISSING)
             self.assertFalse(dest.exists())
 
+    def test_permanent_license(self) -> None:
+        text = build_signed_license(
+            private_key_b64=self.priv_b64,
+            customer="永久客户",
+            permanent=True,
+            issued_at=date.today(),
+        )
+        info = check_license_text(text, today=date.today())
+        self.assertEqual(info.status, LicenseStatus.VALID)
+        self.assertTrue(info.allow_business)
+        self.assertTrue(info.permanent)
+        self.assertIsNone(info.expires_at)
+        self.assertIsNone(info.days_remaining)
+        self.assertIn("永久", info.message)
+
+    def test_permanent_ignores_past_expiry(self) -> None:
+        payload = {
+            "product": "tally",
+            "customer": "永久客户",
+            "issued_at": "2020-01-01",
+            "expires_at": "2020-02-01",
+            "permanent": True,
+            "license_id": "id",
+        }
+        info = evaluate_payload(payload, today=date(2026, 10, 19))
+        self.assertEqual(info.status, LicenseStatus.VALID)
+        self.assertTrue(info.permanent)
+        self.assertTrue(info.allow_business)
+
+    def test_permanent_clock_rollback_invalid(self) -> None:
+        text = build_signed_license(
+            private_key_b64=self.priv_b64,
+            customer="永久客户",
+            permanent=True,
+            issued_at=date(2026, 8, 1),
+        )
+        info = check_license_text(text, today=date(2026, 7, 20))
+        self.assertEqual(info.status, LicenseStatus.INVALID)
+        self.assertFalse(info.allow_business)
+
     def test_clock_rollback_invalid(self) -> None:
         payload = {
             "product": "tally",

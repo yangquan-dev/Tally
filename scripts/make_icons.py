@@ -26,6 +26,9 @@ ICO = ROOT / "assets" / "app.ico"
 ICNS = ROOT / "assets" / "app.icns"
 PNG256 = ROOT / "assets" / "app-icon-256.png"
 
+# 图案相对画布的比例。铺满画布时，Dock / 任务栏里会比系统图标显得更大。
+ICON_SCALE = 0.8
+
 ICO_SIZES = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 ICNS_SIZES = {
     "icon_16x16.png": 16,
@@ -86,6 +89,17 @@ def _load_square_rgba(path: Path) -> Image.Image:
     return _clear_black_outside_corners(img)
 
 
+def _inset_icon(src: Image.Image, scale: float = ICON_SCALE) -> Image.Image:
+    """把图案缩小后居中放到透明画布上。"""
+    side = src.size[0]
+    inner = max(1, int(round(side * scale)))
+    resized = src.resize((inner, inner), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    offset = (side - inner) // 2
+    canvas.paste(resized, (offset, offset), resized)
+    return canvas
+
+
 def make_ico(src: Image.Image, dest: Path) -> None:
     # Pillow 以最大尺寸为基底，并按 sizes 生成多分辨率 ICO
     base = src.resize(ICO_SIZES[-1], Image.Resampling.LANCZOS)
@@ -123,7 +137,7 @@ def make_png256(src: Image.Image, dest: Path) -> None:
 
 
 def main() -> None:
-    src = _load_square_rgba(SRC)
+    src = _inset_icon(_load_square_rgba(SRC))
     make_ico(src, ICO)
     make_icns(src, ICNS)
     make_png256(src, PNG256)

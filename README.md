@@ -207,6 +207,9 @@ python scripts/issue_license.py
 
 # 命令行一键签发（有效期 365 天）
 python scripts/issue_license.py issue --customer "某某物业管理有限公司" --days 365 --out ./tally.lic
+
+# 永久授权
+python scripts/issue_license.py issue --customer "某某物业管理有限公司" --permanent
 ```
 签发出 `.lic` 文件后，用户只需在应用内的**通用配置 → 导入授权**中上传该文件即可激活使用。
 

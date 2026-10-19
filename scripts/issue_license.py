@@ -19,6 +19,9 @@
     --expires 2027-12-31 \\
     --out ~/Desktop/某某物业.lic
 
+  # 永久授权
+  python scripts/issue_license.py issue --customer "某某物业" --permanent
+
 生成新密钥后，请将公钥 Base64 同步写入 app/license.py 的 PUBLIC_KEY_B64。
 
 注意：签发产物仅作分发用；用户必须在安装后于应用内「导入授权」。
@@ -37,9 +40,22 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from nacl.signing import SigningKey
-
-from app.license import PUBLIC_KEY_B64, build_signed_license
+try:
+    from nacl.signing import SigningKey
+    from app.license import PUBLIC_KEY_B64, build_signed_license
+except ModuleNotFoundError as err:
+    if "nacl" in str(err).lower():
+        sys.exit(
+            "错误: 缺少依赖库 'PyNaCl'。\n"
+            "请先激活虚拟环境或安装项目依赖：\n"
+            "  1. 创建并激活虚拟环境（推荐）：\n"
+            "     python3 -m venv .venv\n"
+            "     source .venv/bin/activate\n"
+            "     pip install -r requirements.txt\n\n"
+            "  2. 或直接为当前 Python 环境安装：\n"
+            "     pip3 install PyNaCl"
+        )
+    raise
 
 DEFAULT_PRIVATE_KEY = ROOT / "keys" / "ed25519_private.key"
 DEFAULT_KEYS_DIR = ROOT / "keys"
@@ -99,6 +115,11 @@ def cmd_gen_keys(out_dir: Path, *, force: bool = False) -> None:
         print("⚠ 新公钥与应用内嵌公钥不一致，签发的授权将无法被当前应用验证。")
 
 
+def _license_filename(customer: str, expires_at: date | None, *, permanent: bool) -> str:
+    label = "永久" if permanent else (expires_at.isoformat() if expires_at else "license")
+    return f"{_safe_filename(customer)}-{label}.lic"
+
+
 def cmd_issue(
     *,
     private_key: Path,
@@ -107,6 +128,7 @@ def cmd_issue(
     expires: str,
     issued: str,
     out: Path | None,
+    permanent: bool = False,
 ) -> Path:
     key_path = private_key.expanduser()
     if not key_path.is_file():
@@ -117,9 +139,14 @@ def cmd_issue(
     customer = customer.strip()
     if not customer:
         raise SystemExit("客户名称不能为空")
+    if permanent and expires:
+        raise SystemExit("永久授权不能同时指定到期日")
 
     private_key_b64 = key_path.read_text(encoding="utf-8").strip()
-    if expires:
+    expires_at: date | None
+    if permanent:
+        expires_at = None
+    elif expires:
         expires_at = date.fromisoformat(expires)
     else:
         expires_at = date.today() + timedelta(days=int(days if days is not None else 365))
@@ -129,14 +156,16 @@ def cmd_issue(
         customer=customer,
         expires_at=expires_at,
         issued_at=date.fromisoformat(issued) if issued else None,
+        permanent=permanent,
     )
 
+    filename = _license_filename(customer, expires_at, permanent=permanent)
     if out is None:
-        out = _desktop_dir() / f"{_safe_filename(customer)}-{expires_at.isoformat()}.lic"
+        out = _desktop_dir() / filename
     else:
         out = out.expanduser()
         if out.is_dir() or str(out).endswith(("/", "\\")):
-            out = out / f"{_safe_filename(customer)}-{expires_at.isoformat()}.lic"
+            out = out / filename
         elif out.suffix.lower() != ".lic":
             out = out.with_suffix(out.suffix + ".lic") if out.suffix else out.with_suffix(".lic")
 
@@ -146,7 +175,7 @@ def cmd_issue(
     print("—— 签发成功 ——")
     print(f"文件: {out}")
     print(f"客户: {customer}")
-    print(f"到期: {expires_at.isoformat()}")
+    print(f"到期: {'永久' if permanent else expires_at.isoformat()}")
     print(f"私钥: {key_path}")
     print()
     print("请将 .lic 发给客户，在应用「通用配置 → 软件授权 → 导入授权」中导入。")
@@ -188,18 +217,25 @@ def cmd_interactive() -> None:
     while not customer.strip():
         customer = _prompt("客户名称不能为空，请重新输入")
 
-    mode = _prompt("有效期方式：1=天数  2=到期日", "1")
+    mode = _prompt("有效期方式：1=天数  2=到期日  3=永久", "1")
     days: int | None = 365
     expires = ""
-    if mode == "2":
+    permanent = False
+    expires_at: date | None
+    if mode == "3":
+        permanent = True
+        days = None
+        expires_at = None
+    elif mode == "2":
         expires = _prompt("到期日 YYYY-MM-DD")
         days = None
+        expires_at = date.fromisoformat(expires)
     else:
         days = _prompt_int("有效天数", 365)
+        expires_at = date.today() + timedelta(days=days)
 
     default_out = str(
-        _desktop_dir()
-        / f"{_safe_filename(customer)}-{(date.fromisoformat(expires) if expires else date.today() + timedelta(days=days or 365)).isoformat()}.lic"
+        _desktop_dir() / _license_filename(customer, expires_at, permanent=permanent)
     )
     out_raw = _prompt("输出路径（回车用默认）", default_out)
     private_key = Path(
@@ -213,6 +249,7 @@ def cmd_interactive() -> None:
         expires=expires,
         issued="",
         out=Path(out_raw) if out_raw else None,
+        permanent=permanent,
     )
 
 
@@ -255,6 +292,11 @@ def main() -> None:
     p_issue.add_argument(
         "--expires", default="", help="到期日 YYYY-MM-DD（优先于 --days）"
     )
+    p_issue.add_argument(
+        "--permanent",
+        action="store_true",
+        help="签发永久授权（不设到期日）",
+    )
     p_issue.add_argument("--issued", default="", help="签发日 YYYY-MM-DD（默认今天）")
     p_issue.add_argument(
         "--out",
@@ -271,10 +313,11 @@ def main() -> None:
         cmd_issue(
             private_key=Path(args.private_key),
             customer=args.customer,
-            days=None if args.expires else args.days,
+            days=None if args.expires or args.permanent else args.days,
             expires=args.expires,
             issued=args.issued,
             out=Path(args.out) if args.out else None,
+            permanent=args.permanent,
         )
     elif args.command == "interactive":
         try:

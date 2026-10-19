@@ -48,6 +48,7 @@ class LicenseInfo:
     expires_at: Optional[date] = None
     grace_end: Optional[date] = None
     days_remaining: Optional[int] = None
+    permanent: bool = False
 
     @property
     def allow_business(self) -> bool:
@@ -111,17 +112,22 @@ def decode_and_verify(raw_text: str) -> dict[str, Any]:
     return payload
 
 
+def _is_permanent(payload: dict[str, Any]) -> bool:
+    return payload.get("permanent") is True
+
+
 def evaluate_payload(payload: dict[str, Any], today: Optional[date] = None) -> LicenseInfo:
     today = today or date.today()
+    permanent = _is_permanent(payload)
     try:
         issued_at = _parse_date(payload.get("issued_at"), "issued_at")
-        expires_at = _parse_date(payload.get("expires_at"), "expires_at")
+        expires_at = None if permanent else _parse_date(payload.get("expires_at"), "expires_at")
     except ValueError:
         return LicenseInfo(
             status=LicenseStatus.INVALID,
             message="授权文件无效或已损坏。",
         )
-    if expires_at < issued_at:
+    if not permanent and expires_at is not None and expires_at < issued_at:
         return LicenseInfo(
             status=LicenseStatus.INVALID,
             message="授权文件无效或已损坏。",
@@ -135,6 +141,17 @@ def evaluate_payload(payload: dict[str, Any], today: Optional[date] = None) -> L
 
     customer = str(payload.get("customer") or "").strip()
     license_id = str(payload.get("license_id") or "").strip()
+    if permanent:
+        return LicenseInfo(
+            status=LicenseStatus.VALID,
+            message="授权永久有效。",
+            customer=customer,
+            license_id=license_id,
+            issued_at=issued_at,
+            permanent=True,
+        )
+
+    assert expires_at is not None
     grace_end = expires_at + timedelta(days=GRACE_DAYS)
 
     if today <= expires_at:
@@ -238,21 +255,28 @@ def build_signed_license(
     *,
     private_key_b64: str,
     customer: str,
-    expires_at: date,
+    expires_at: Optional[date] = None,
     issued_at: Optional[date] = None,
     license_id: Optional[str] = None,
+    permanent: bool = False,
 ) -> str:
     """签发 License JSON 文本（供脚本使用）。"""
     from nacl.signing import SigningKey
 
+    if not permanent and expires_at is None:
+        raise ValueError("到期日不能为空")
     issued = issued_at or date.today()
-    payload = {
+    payload: dict[str, Any] = {
         "product": PRODUCT_ID,
         "customer": (customer or "").strip() or "未命名客户",
         "issued_at": issued.isoformat(),
-        "expires_at": expires_at.isoformat(),
         "license_id": license_id or str(uuid.uuid4()),
     }
+    if permanent:
+        payload["permanent"] = True
+    else:
+        assert expires_at is not None
+        payload["expires_at"] = expires_at.isoformat()
     payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
         "utf-8"
     )

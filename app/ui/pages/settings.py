@@ -503,7 +503,9 @@ class SettingsPage(ctk.CTkFrame):
         lines = [f"状态：{info.status_label}"]
         if info.customer:
             lines.append(f"客户：{info.customer}")
-        if info.expires_at is not None:
+        if info.permanent:
+            lines.append("到期日：永久")
+        elif info.expires_at is not None:
             lines.append(f"到期日：{info.expires_at.isoformat()}")
         if info.grace_end is not None and info.status in {
             LicenseStatus.VALID,

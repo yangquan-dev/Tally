@@ -208,7 +208,9 @@ class TallyApp(ctk.CTk):
 
     def _refresh_license_label(self) -> None:
         info = self._license_info
-        if info.status == LicenseStatus.VALID and info.expires_at is not None:
+        if info.permanent and info.status == LicenseStatus.VALID:
+            text = "授权：永久有效"
+        elif info.status == LicenseStatus.VALID and info.expires_at is not None:
             text = f"授权：有效（剩 {info.days_remaining} 天）"
         elif info.status == LicenseStatus.GRACE and info.grace_end is not None:
             text = f"授权：宽限期（至 {info.grace_end.isoformat()}）"

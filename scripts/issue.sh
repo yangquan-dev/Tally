@@ -4,6 +4,7 @@
 #   ./scripts/issue.sh "某某物业"
 #   ./scripts/issue.sh "某某物业" 365
 #   ./scripts/issue.sh "某某物业" 2027-12-31
+#   ./scripts/issue.sh "某某物业" permanent
 #   ./scripts/issue.sh "某某物业" 365 ~/Desktop/某某物业.lic
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,15 +20,18 @@ fi
 
 CUSTOMER="${1:-}"
 if [[ -z "$CUSTOMER" ]]; then
-  echo "用法: $0 \"客户名称\" [天数|到期日YYYY-MM-DD] [输出路径]"
+  echo "用法: $0 \"客户名称\" [天数|到期日YYYY-MM-DD|permanent] [输出路径]"
   echo "示例: $0 \"某某物业\" 365"
   echo "示例: $0 \"某某物业\" 2027-12-31"
+  echo "示例: $0 \"某某物业\" permanent"
   exit 1
 fi
 
 EXTRA=()
 ARG2="${2:-365}"
-if [[ "$ARG2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+if [[ "$ARG2" == "permanent" || "$ARG2" == "永久" ]]; then
+  EXTRA+=(--permanent)
+elif [[ "$ARG2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   EXTRA+=(--expires "$ARG2")
 else
   EXTRA+=(--days "$ARG2")
